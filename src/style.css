@@ -118,6 +118,7 @@ textarea {
   color: var(--text);
   border-radius: 10px;
   padding: 10px 12px;
+  font-size: 16px;
   outline: none;
 }
 
@@ -181,6 +182,7 @@ textarea:focus {
 .left-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .logo {
@@ -402,30 +404,6 @@ textarea:focus {
   padding-right: 4px;
 }
 
-.admin-list {
-  max-height: 220px;
-  overflow-y: auto;
-  display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding-right: 4px;
-}
-
-.admin-row {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: 10px;
-  padding: 8px 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.admin-row span {
-  overflow-wrap: anywhere;
-}
-
 .round-msg {
   border: none;
   background: var(--accent);
@@ -467,11 +445,34 @@ textarea:focus {
 @media (max-width: 960px) {
   .shell {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(190px, 42vh) 1fr;
+    height: 100dvh;
   }
   .left {
-    min-height: 170px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .left-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--panel);
   }
   .chat-room {
     min-height: 0;
+  }
+  .logo {
+    font-size: 14px;
+    max-width: calc(100% - 84px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
   }
 }

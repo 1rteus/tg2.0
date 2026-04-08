@@ -11,7 +11,6 @@ import {
 import {
   arrayUnion,
   collection,
-  deleteDoc,
   documentId,
   doc,
   getDoc,
@@ -24,7 +23,6 @@ import {
   setDoc,
   updateDoc,
   where,
-  writeBatch,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -118,7 +116,6 @@ const applyTheme = (theme: ThemeMode) => {
   localStorage.setItem(THEME_KEY, theme);
 };
 const getThemeToggleText = (theme: ThemeMode): string => (theme === "dark" ? "☀️ Светлая" : "🌙 Тёмная");
-const isAdmin = (profile: Profile): boolean => profile.username === "admin";
 
 const reserveUsername = async (uid: string, rawUsername: string) => {
   const username = normalizeUsername(rawUsername);
@@ -173,37 +170,6 @@ const ensureUserProfile = async (user: User): Promise<Profile> => {
   };
   await setDoc(userRef, { ...profile, createdAt: serverTimestamp() }, { merge: true });
   return profile;
-};
-
-const deleteChatWithMessages = async (chatId: string) => {
-  const messagesSnap = await getDocs(collection(db, "chats", chatId, "messages"));
-  if (!messagesSnap.empty) {
-    let batch = writeBatch(db);
-    let opCount = 0;
-    for (const messageDoc of messagesSnap.docs) {
-      batch.delete(messageDoc.ref);
-      opCount += 1;
-      if (opCount === 400) {
-        await batch.commit();
-        batch = writeBatch(db);
-        opCount = 0;
-      }
-    }
-    if (opCount > 0) {
-      await batch.commit();
-    }
-  }
-  await deleteDoc(doc(db, "chats", chatId));
-};
-
-const removeUserFromMessenger = async (uid: string, username: string) => {
-  const chatsSnap = await getDocs(query(collection(db, "chats"), where("participants", "array-contains", uid)));
-  for (const chatDoc of chatsSnap.docs) {
-    await deleteChatWithMessages(chatDoc.id);
-  }
-  await setDoc(doc(db, "deletedUsers", uid), { uid, username, deletedAt: serverTimestamp() }, { merge: true });
-  await deleteDoc(doc(db, "users", uid));
-  await deleteDoc(doc(db, "usernames", username));
 };
 
 const renderAuth = () => {
@@ -311,7 +277,6 @@ const renderApp = (user: User, profile: Profile) => {
       <header class="left-head">
         <div class="logo">tg2.0</div>
         <div class="left-actions">
-          ${isAdmin(profile) ? `<button id="open-admin" class="icon-btn" title="Админ панель">🛠️</button>` : ""}
           <button id="open-search" class="icon-btn" title="Найти">🔎</button>
         </div>
       </header>
@@ -340,10 +305,6 @@ const renderApp = (user: User, profile: Profile) => {
   logoutBtn.onclick = async () => signOut(auth);
   (document.getElementById("open-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
   (document.getElementById("open-search") as HTMLButtonElement).onclick = openSearchModal;
-  if (isAdmin(profile)) {
-    const adminBtn = document.getElementById("open-admin") as HTMLButtonElement | null;
-    if (adminBtn) adminBtn.onclick = openAdminPanel;
-  }
   subscribeChatList(user.uid);
 };
 
@@ -545,66 +506,6 @@ const openSearchModal = () => {
     void renderSearchResults(input.value);
   };
   void renderSearchResults("");
-};
-
-const openAdminPanel = async () => {
-  openModal(`
-    <h2>Админ панель</h2>
-    <p class="sub">Удаление из мессенджера (Firestore). Аккаунт в Firebase Auth остается.</p>
-    <h3>Чаты</h3>
-    <div id="admin-chats" class="admin-list"><p class="status">Загрузка...</p></div>
-    <h3>Пользователи</h3>
-    <div id="admin-users" class="admin-list"><p class="status">Загрузка...</p></div>
-  `);
-
-  const chatsNode = document.getElementById("admin-chats") as HTMLDivElement;
-  const usersNode = document.getElementById("admin-users") as HTMLDivElement;
-
-  const chatsSnap = await getDocs(collection(db, "chats"));
-  if (chatsSnap.empty) {
-    chatsNode.innerHTML = `<p class="status">Чатов пока нет</p>`;
-  } else {
-    const rows: string[] = [];
-    for (const chat of chatsSnap.docs) {
-      const participants = (chat.data().participants as string[]) || [];
-      const usernames: string[] = [];
-      for (const uid of participants) {
-        const u = await getDoc(doc(db, "users", uid));
-        usernames.push(u.exists() ? `@${(u.data() as Profile).username}` : uid.slice(0, 6));
-      }
-      rows.push(`<div class="admin-row">
-        <span>${escapeHtml(usernames.join(" • "))}</span>
-        <button class="ghost-btn admin-del-chat" data-chat="${chat.id}">Удалить чат</button>
-      </div>`);
-    }
-    chatsNode.innerHTML = rows.join("");
-    chatsNode.querySelectorAll<HTMLButtonElement>(".admin-del-chat").forEach((btn) => {
-      btn.onclick = async () => {
-        if (!confirm("Удалить чат полностью?")) return;
-        await deleteChatWithMessages(btn.dataset.chat || "");
-        btn.closest(".admin-row")?.remove();
-      };
-    });
-  }
-
-  const usersSnap = await getDocs(collection(db, "users"));
-  const userRows = usersSnap.docs
-    .map((u) => u.data() as Profile)
-    .filter((u) => u.username !== "admin")
-    .map(
-      (u) => `<div class="admin-row">
-      <span>${escapeHtml(u.nickname)} (@${escapeHtml(u.username)})</span>
-      <button class="ghost-btn admin-del-user" data-uid="${u.uid}" data-username="${u.username}">Удалить</button>
-    </div>`
-    );
-  usersNode.innerHTML = userRows.length ? userRows.join("") : `<p class="status">Нет пользователей для удаления</p>`;
-  usersNode.querySelectorAll<HTMLButtonElement>(".admin-del-user").forEach((btn) => {
-    btn.onclick = async () => {
-      if (!confirm("Удалить пользователя из мессенджера и все его чаты?")) return;
-      await removeUserFromMessenger(btn.dataset.uid || "", btn.dataset.username || "");
-      btn.closest(".admin-row")?.remove();
-    };
-  });
 };
 
 const renderMessage = (message: MessageDoc, mine: boolean, peerId: string): string => {
