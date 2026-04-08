@@ -36,19 +36,26 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   height: var(--app-height, 100dvh);
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
-  position: fixed;
-  width: 100%;
-  inset: 0;
+}
+
+#app {
+  height: 100%;
+  background: var(--bg);
 }
 
 .shell {
-  height: var(--app-height, 100dvh);
+  height: 100%;
   display: grid;
   grid-template-columns: 340px 1fr;
   overflow: hidden;
@@ -253,6 +260,7 @@ textarea:focus {
   grid-template-rows: auto 1fr;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg);
 }
 
 .content {
@@ -260,6 +268,7 @@ textarea:focus {
   display: grid;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg);
 }
 
 .content.empty {
