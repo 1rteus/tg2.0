@@ -199,7 +199,7 @@ const renderAuth = () => {
       </div>
       <form id="auth-form" class="form">
         <label>Username
-          <input id="auth-username" minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]+" placeholder="ivan_23" required />
+          <input id="auth-username" minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]+" placeholder="user" required />
         </label>
         <label>Password
           <input id="auth-password" type="password" minlength="6" required />
@@ -238,6 +238,8 @@ const renderAuth = () => {
     status.textContent = "Проверяем...";
     try {
       const username = normalizeUsername(usernameInput.value);
+      let nextUser: User | null = null;
+      let nextProfile: Profile | null = null;
       if (mode === "signup") {
         const usernameRef = doc(db, "usernames", username);
         if ((await getDoc(usernameRef)).exists()) {
@@ -257,6 +259,16 @@ const renderAuth = () => {
             avatarSticker: "🐼",
             createdAt: serverTimestamp(),
           });
+          nextUser = cred.user;
+          nextProfile = {
+            uid: cred.user.uid,
+            email: authEmail,
+            username,
+            nickname: username,
+            bio: "",
+            avatarUrl: "",
+            avatarSticker: "🐼",
+          };
         } catch (error) {
           await deleteUser(cred.user);
           throw error;
@@ -275,7 +287,12 @@ const renderAuth = () => {
           ? String((profileDoc.data().email as string) || usernameToEmail(username))
           : usernameToEmail(username);
         const cred = await signInWithEmailAndPassword(auth, authEmail, passwordInput.value);
-        await ensureUserProfile(cred.user);
+        nextUser = cred.user;
+        nextProfile = await ensureUserProfile(cred.user);
+      }
+      if (nextUser && nextProfile) {
+        renderApp(nextUser, nextProfile);
+        return;
       }
       status.textContent = "Готово";
     } catch (error) {
