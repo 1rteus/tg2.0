@@ -38,14 +38,17 @@
 
 body {
   margin: 0;
-  height: 100vh;
+  height: var(--app-height, 100dvh);
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  position: fixed;
+  width: 100%;
+  inset: 0;
 }
 
 .shell {
-  height: 100vh;
+  height: var(--app-height, 100dvh);
   display: grid;
   grid-template-columns: 340px 1fr;
   overflow: hidden;
@@ -446,7 +449,7 @@ textarea:focus {
   .shell {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(190px, 42vh) 1fr;
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
   }
   .left {
     min-height: 0;

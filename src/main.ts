@@ -116,6 +116,21 @@ const applyTheme = (theme: ThemeMode) => {
   localStorage.setItem(THEME_KEY, theme);
 };
 const getThemeToggleText = (theme: ThemeMode): string => (theme === "dark" ? "☀️ Светлая" : "🌙 Тёмная");
+const setupMobileViewportLock = () => {
+  const updateViewportHeight = () => {
+    const height = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty("--app-height", `${Math.round(height)}px`);
+  };
+  updateViewportHeight();
+  window.visualViewport?.addEventListener("resize", updateViewportHeight);
+  window.addEventListener("resize", updateViewportHeight);
+  window.addEventListener("orientationchange", updateViewportHeight);
+
+  // iOS Safari can shift the whole page when focusing inputs.
+  document.addEventListener("focusin", () => {
+    window.setTimeout(() => window.scrollTo(0, 0), 0);
+  });
+};
 
 const reserveUsername = async (uid: string, rawUsername: string) => {
   const username = normalizeUsername(rawUsername);
@@ -611,6 +626,7 @@ const openChat = async (chatId: string, peerId: string) => {
 };
 
 const bootstrap = async () => {
+  setupMobileViewportLock();
   applyTheme(readTheme());
   renderAuth();
   onAuthStateChanged(auth, async (user) => {
