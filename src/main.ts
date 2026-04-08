@@ -210,8 +210,8 @@ const renderAuth = () => {
   appNode.innerHTML = `
   <main class="shell center">
     <section class="card auth-card">
-      <h1>TG Lite Messenger</h1>
-      <p class="subtitle">Регистрация и вход без локального сервера. Можно запустить на GitHub Pages.</p>
+      <h1>tg2.0</h1>
+      <p class="subtitle">Регистрация и вход.</p>
       <div class="tabs">
         <button id="tab-signup" class="tab active">Регистрация</button>
         <button id="tab-login" class="tab">Вход</button>
