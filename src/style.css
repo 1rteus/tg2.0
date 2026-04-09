@@ -399,6 +399,23 @@ textarea:focus {
   padding-right: 4px;
 }
 
+.admin-toggle {
+  margin-bottom: 12px;
+}
+
+.toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+}
+
 .admin-row {
   border: 1px solid var(--border);
   background: var(--panel);

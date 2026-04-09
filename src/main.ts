@@ -52,6 +52,8 @@ let activeChatId = "";
 let activePeerId = "";
 const THEME_KEY = "tg_theme";
 const profileCache = new Map<string, Profile>();
+let currentProfile: Profile | null = null;
+const ADMIN_SHOW_DELETED_KEY = "tg_admin_show_deleted";
 
 type ThemeMode = "light" | "dark";
 type MessageDoc = {
@@ -128,6 +130,8 @@ const normalizeUsername = (rawUsername: string): string => {
 const usernameToEmail = (username: string): string => `${username}@tg.local`;
 const isAdmin = (profile: Profile): boolean => profile.username === "admin";
 const randomSticker = (): string => stickers[Math.floor(Math.random() * stickers.length)] || "🐼";
+const readAdminShowDeleted = (): boolean => localStorage.getItem(ADMIN_SHOW_DELETED_KEY) === "1";
+const setAdminShowDeleted = (value: boolean) => localStorage.setItem(ADMIN_SHOW_DELETED_KEY, value ? "1" : "0");
 const readTheme = (): ThemeMode => {
   const saved = localStorage.getItem(THEME_KEY);
   return saved === "dark" ? "dark" : "light";
@@ -304,6 +308,7 @@ const renderAuth = () => {
 
 const renderApp = (user: User, profile: Profile) => {
   const currentTheme = readTheme();
+  currentProfile = profile;
   appNode.innerHTML = `
   <main class="shell">
     <aside class="left">
@@ -349,13 +354,29 @@ const renderApp = (user: User, profile: Profile) => {
 };
 
 const openAdminModal = async () => {
+  const showDeleted = readAdminShowDeleted();
   openModal(`
     <h2>Админ</h2>
+    <div class="admin-toggle">
+      <label class="toggle">
+        <input id="admin-show-deleted" type="checkbox" ${showDeleted ? "checked" : ""} />
+        <span>Показывать удалённые сообщения в чатах</span>
+      </label>
+    </div>
     <h3>Пользователи</h3>
     <div id="admin-users" class="admin-list"><p class="status">Загрузка...</p></div>
     <h3>Удалённые сообщения</h3>
     <div id="admin-deleted" class="admin-list"><p class="status">Загрузка...</p></div>
   `);
+  const toggle = document.getElementById("admin-show-deleted") as HTMLInputElement | null;
+  if (toggle) {
+    toggle.onchange = () => {
+      setAdminShowDeleted(Boolean(toggle.checked));
+      if (activeChatId) {
+        void openChat(activeChatId, activePeerId);
+      }
+    };
+  }
   const usersNode = document.getElementById("admin-users") as HTMLDivElement;
   const deletedNode = document.getElementById("admin-deleted") as HTMLDivElement;
 
@@ -802,9 +823,10 @@ const renderMessage = (params: {
   sender: Profile | null;
   showSenderLabel: boolean;
   canEdit: boolean;
+  showDeleted: boolean;
 }): string => {
-  const { message, mine, peerId, sender, showSenderLabel, canEdit } = params;
-  const body = message.deleted ? "Сообщение удалено" : String(message.text || "");
+  const { message, mine, peerId, sender, showSenderLabel, canEdit, showDeleted } = params;
+  const body = message.deleted ? (showDeleted ? String(message.deletedText || "Сообщение удалено") : "") : String(message.text || "");
   const read = peerId ? Boolean(message.readBy?.includes(peerId)) : false;
   const checks = mine && peerId ? (read ? "✓✓" : "✓") : "";
   const edited = Boolean(message.editedAt) && !message.deleted;
@@ -818,7 +840,7 @@ const renderMessage = (params: {
         <p class="${message.deleted ? "muted" : ""}">${escapeHtml(body)}</p>
         <div class="msg-bottom">
           ${showSenderLabel ? `<span class="msg-user">${escapeHtml(username)}</span>` : `<span></span>`}
-          <span class="msg-meta">${edited ? "изменено" : ""} ${checks}</span>
+          <span class="msg-meta">${message.deleted ? "удалено" : edited ? "изменено" : ""} ${checks}</span>
         </div>
       </div>
       <div class="avatar msg-avatar">${avatar}</div>
@@ -877,7 +899,9 @@ const openChat = async (chatId: string, peerId: string) => {
   onSnapshot(q, async (snapshot) => {
     if (chatId !== activeChatId) return;
     const me = auth.currentUser;
-    const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as MessageDoc) })) as MessageDoc[];
+    const showDeleted = Boolean(currentProfile && isAdmin(currentProfile) && readAdminShowDeleted());
+    const allDocs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as MessageDoc) })) as MessageDoc[];
+    const docs = showDeleted ? allDocs : allDocs.filter((m) => !m.deleted);
     const senderIds = [...new Set(docs.map((m) => m.senderId))];
     await Promise.all(senderIds.map((id) => getProfile(id)));
 
@@ -893,6 +917,7 @@ const openChat = async (chatId: string, peerId: string) => {
           sender,
           showSenderLabel: true,
           canEdit,
+          showDeleted,
         });
       })
       .join("");
@@ -910,12 +935,12 @@ const openChat = async (chatId: string, peerId: string) => {
       btn.onclick = () => {
         const row = btn.closest<HTMLElement>(".msg-row");
         const mid = row?.dataset.mid || "";
-        const msg = docs.find((m) => m.id === mid);
+        const msg = allDocs.find((m) => m.id === mid);
         if (!msg) return;
         openMessageActionsModal({
           chatId,
           messageId: mid,
-          currentText: String(msg.text || ""),
+          currentText: String(msg.text || msg.deletedText || ""),
           deleted: Boolean(msg.deleted),
         });
       };
