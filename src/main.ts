@@ -1415,7 +1415,13 @@ const openChat = async (chatId: string, peerId: string) => {
       await updateDoc(doc(db, "chats", chatId), {
         updatedAt: serverTimestamp(),
         lastMessage: text,
-        ...(type === "dm" ? { participants: arrayUnion(user.uid, activePeerId) } : {}),
+        ...(type === "dm"
+          ? { participants: arrayUnion(user.uid, activePeerId) }
+          : {
+              // защитa: иногда в participants попадал пустой uid
+              participants: arrayRemove(""),
+              admins: arrayRemove(""),
+            }),
       });
       input.value = "";
       status.textContent = "";
