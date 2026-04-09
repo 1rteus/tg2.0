@@ -11,7 +11,6 @@ import {
 import {
   arrayUnion,
   collection,
-  collectionGroup,
   documentId,
   doc,
   getDoc,
@@ -365,8 +364,6 @@ const openAdminModal = async () => {
     </div>
     <h3>Пользователи</h3>
     <div id="admin-users" class="admin-list"><p class="status">Загрузка...</p></div>
-    <h3>Удалённые сообщения</h3>
-    <div id="admin-deleted" class="admin-list"><p class="status">Загрузка...</p></div>
   `);
   const toggle = document.getElementById("admin-show-deleted") as HTMLInputElement | null;
   if (toggle) {
@@ -378,7 +375,6 @@ const openAdminModal = async () => {
     };
   }
   const usersNode = document.getElementById("admin-users") as HTMLDivElement;
-  const deletedNode = document.getElementById("admin-deleted") as HTMLDivElement;
 
   const usersSnap = await getDocs(query(collection(db, "users"), limit(200)));
   const users = usersSnap.docs.map((d) => d.data() as Profile).sort((a, b) => a.username.localeCompare(b.username));
@@ -389,24 +385,6 @@ const openAdminModal = async () => {
       </div>`
     )
     .join("");
-
-  const deletedSnap = await getDocs(
-    query(collectionGroup(db, "messages"), where("deleted", "==", true), orderBy("deletedAt", "desc"), limit(50))
-  );
-  if (deletedSnap.empty) {
-    deletedNode.innerHTML = `<p class="status">Удалённых сообщений нет</p>`;
-  } else {
-    deletedNode.innerHTML = deletedSnap.docs
-      .map((d) => {
-        const msg = d.data() as MessageDoc;
-        const path = d.ref.path;
-        const deletedText = msg.deletedText || "(пусто)";
-        return `<div class="admin-row">
-          <span><strong>chat:</strong> ${escapeHtml(path)}<br/><strong>text:</strong> ${escapeHtml(deletedText)}</span>
-        </div>`;
-      })
-      .join("");
-  }
 };
 
 const subscribeChatList = (uid: string) => {
