@@ -427,6 +427,20 @@ textarea:focus {
   color: var(--muted);
 }
 
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.msg-user {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
 .msg-meta {
   display: block;
   font-size: 12px;
@@ -650,6 +664,13 @@ textarea:focus {
   }
   .chat-room {
     min-height: 0;
+  }
+  .chat-head {
+    grid-template-columns: auto 44px 1fr;
+    align-items: center;
+  }
+  .chat-head div {
+    text-align: left;
   }
   .logo {
     font-size: 14px;

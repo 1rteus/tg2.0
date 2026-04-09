@@ -334,7 +334,7 @@ const renderApp = (user: User, profile: Profile) => {
 
     <section class="right" id="right-panel">
       <header class="topbar desktop-only">
-        <button id="open-profile" class="ghost-btn">${escapeHtml(profile.nickname)}</button>
+        <button id="open-profile" class="ghost-btn">Профиль</button>
         <button id="theme-toggle" class="ghost-btn">${getThemeToggleText(currentTheme)}</button>
         <button id="logout" class="ghost-btn">Выйти</button>
       </header>
@@ -402,7 +402,10 @@ const openGroupInfoModal = async (chatId: string) => {
   const chat = snap.data() as ChatDoc;
   const members = await Promise.all((chat.participants || []).map((uid) => getProfile(uid)));
   openModal(`
-    <h2>${escapeHtml(chat.title || "Группа")}</h2>
+    <div class="modal-head">
+      <button type="button" id="modal-back" class="ghost-btn small-btn">←</button>
+      <h2>${escapeHtml(chat.title || "Группа")}</h2>
+    </div>
     <p class="sub">${escapeHtml((chat.participants?.length || 0).toString())} участников</p>
     <div class="admin-list">
       ${members
@@ -420,6 +423,27 @@ const openGroupInfoModal = async (chatId: string) => {
         .join("")}
     </div>
   `);
+  const back = document.getElementById("modal-back") as HTMLButtonElement | null;
+  if (back) back.onclick = closeModal;
+};
+
+const openUserProfileCard = async (uid: string) => {
+  const p = await getProfile(uid);
+  if (!p) return;
+  openModal(`
+    <div class="modal-head">
+      <button type="button" id="modal-back" class="ghost-btn small-btn">←</button>
+      <h2>Профиль</h2>
+    </div>
+    <article class="user-card">
+      <div class="avatar large">${p.avatarUrl ? `<img src="${p.avatarUrl}" alt="" />` : escapeHtml(p.avatarSticker)}</div>
+      <h3>${escapeHtml(p.nickname)}</h3>
+      <p>@${escapeHtml(p.username)}</p>
+      <p>${escapeHtml(p.bio || "О себе пока ничего нет")}</p>
+    </article>
+  `);
+  const back = document.getElementById("modal-back") as HTMLButtonElement | null;
+  if (back) back.onclick = closeModal;
 };
 
 const openAdminModal = async () => {
@@ -887,11 +911,19 @@ const renderMessage = (params: {
       <div class="msg">
         <p class="${message.deleted ? "muted" : ""}">${escapeHtml(body)}</p>
         <div class="msg-bottom">
-          ${showSenderLabel ? `<span class="msg-user">${escapeHtml(username)}</span>` : `<span></span>`}
+          ${
+            showSenderLabel && sender
+              ? `<button type="button" class="msg-user user-open" data-uid="${escapeHtml(sender.uid)}">${escapeHtml(username)}</button>`
+              : `<span></span>`
+          }
           <span class="msg-meta">${message.deleted ? "удалено" : edited ? "изменено" : ""} ${checks}</span>
         </div>
       </div>
-      <div class="avatar msg-avatar">${avatar}</div>
+      ${
+        sender
+          ? `<button type="button" class="avatar msg-avatar avatar-btn user-open" data-uid="${escapeHtml(sender.uid)}">${avatar}</button>`
+          : `<div class="avatar msg-avatar">${avatar}</div>`
+      }
       ${canEdit ? `<button type="button" class="msg-actions" title="Действия">⋯</button>` : ""}
     </div>
   `;
@@ -956,10 +988,12 @@ const openChat = async (chatId: string, peerId: string) => {
   const titleBtn = document.getElementById("chat-title") as HTMLButtonElement;
   titleBtn.onclick = () => {
     if (type === "group") void openGroupInfoModal(chatId);
+    else if (peerId) void openUserProfileCard(peerId);
   };
   const avatarBtn = document.getElementById("chat-avatar") as HTMLButtonElement;
   avatarBtn.onclick = () => {
     if (type === "group") void openGroupInfoModal(chatId);
+    else if (peerId) void openUserProfileCard(peerId);
   };
 
   const collapseBtn = document.getElementById("collapse-chat") as HTMLButtonElement | null;
@@ -1032,6 +1066,13 @@ const openChat = async (chatId: string, peerId: string) => {
           currentText: String(msg.text || msg.deletedText || ""),
           deleted: Boolean(msg.deleted),
         });
+      };
+    });
+
+    messagesNode.querySelectorAll<HTMLButtonElement>(".user-open").forEach((btn) => {
+      btn.onclick = () => {
+        const uid = btn.dataset.uid || "";
+        if (uid) void openUserProfileCard(uid);
       };
     });
   });
