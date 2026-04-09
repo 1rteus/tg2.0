@@ -405,7 +405,8 @@ const openGroupInfoModal = async (chatId: string) => {
   const snap = await getDoc(doc(db, "chats", chatId));
   if (!snap.exists()) return;
   const chat = snap.data() as ChatDoc;
-  const members = await Promise.all((chat.participants || []).map((uid) => getProfile(uid)));
+  const safeParticipants = (chat.participants || []).filter((uid) => typeof uid === "string" && uid.trim().length > 0);
+  const members = await Promise.all(safeParticipants.map((uid) => getProfile(uid)));
   const me = auth.currentUser;
   const isOwner = isGroupOwner(chat, me?.uid);
   const canAdd = canAddGroupMembers(chat, me?.uid);
@@ -444,7 +445,7 @@ const openGroupInfoModal = async (chatId: string) => {
         <button type="button" id="modal-back" class="ghost-btn small-btn">←</button>
         <h2>${escapeHtml(chat.title || "Группа")}</h2>
       </div>
-      <p class="sub">${escapeHtml((chat.participants?.length || 0).toString())} участников</p>
+      <p class="sub">${escapeHtml((safeParticipants.length || 0).toString())} участников</p>
       <div class="row">
         ${isOwner ? `<button type="button" id="delete-group" class="ghost-btn danger-btn">Удалить группу</button>` : ""}
         ${isOwner ? `<button type="button" id="edit-group" class="ghost-btn">Редактировать</button>` : ""}
@@ -1252,7 +1253,7 @@ const openChat = async (chatId: string, peerId: string) => {
           </button>
           <p>${
             type === "group"
-              ? escapeHtml(`${chat?.participants?.length || 0} участников`)
+              ? escapeHtml(`${(chat?.participants || []).filter((u) => typeof u === "string" && u.trim().length > 0).length} участников`)
               : `@${escapeHtml(peer?.username || "")}`
           }</p>
         </div>
@@ -1414,7 +1415,7 @@ const openChat = async (chatId: string, peerId: string) => {
       await updateDoc(doc(db, "chats", chatId), {
         updatedAt: serverTimestamp(),
         lastMessage: text,
-        participants: arrayUnion(user.uid, activePeerId),
+        ...(type === "dm" ? { participants: arrayUnion(user.uid, activePeerId) } : {}),
       });
       input.value = "";
       status.textContent = "";
