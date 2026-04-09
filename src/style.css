@@ -203,7 +203,7 @@ textarea:focus {
   display: none;
 }
 .desktop-only {
-  display: inherit;
+  display: initial;
 }
 
 .shell.mobile {
@@ -220,27 +220,6 @@ textarea:focus {
   display: grid;
 }
 
-.bottom-nav {
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  padding: 10px 12px;
-}
-.nav-btn {
-  border: none;
-  background: var(--button-bg);
-  color: var(--text);
-  border-radius: 12px;
-  padding: 10px 0;
-  cursor: pointer;
-}
-.nav-btn.active {
-  background: var(--accent);
-  color: #fff;
-}
-
 .title-btn {
   border: none;
   background: transparent;
@@ -249,6 +228,12 @@ textarea:focus {
   padding: 0;
   cursor: pointer;
   text-align: left;
+}
+
+.avatar-btn {
+  border: none;
+  padding: 0;
+  cursor: pointer;
 }
 
 .typing {

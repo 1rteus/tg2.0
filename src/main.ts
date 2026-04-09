@@ -318,6 +318,7 @@ const renderApp = (user: User, profile: Profile) => {
         <div class="left-actions">
           <button id="open-create-group" class="icon-btn" title="Создать группу">✚</button>
           <button id="open-search" class="icon-btn" title="Поиск">🔎</button>
+          <button id="open-mobile-menu" class="icon-btn" title="Меню">☰</button>
         </div>
       </header>
       <header class="left-head desktop-only">
@@ -329,13 +330,6 @@ const renderApp = (user: User, profile: Profile) => {
         </div>
       </header>
       <section id="chat-list" class="chat-list"></section>
-
-      <nav class="bottom-nav mobile-only">
-        <button id="nav-profile" class="nav-btn">👤</button>
-        <button class="nav-btn active">💬</button>
-        <button id="nav-theme" class="nav-btn">🌓</button>
-        <button id="nav-logout" class="nav-btn">⎋</button>
-      </nav>
     </aside>
 
     <section class="right" id="right-panel">
@@ -370,12 +364,23 @@ const renderApp = (user: User, profile: Profile) => {
 
   (document.getElementById("open-search") as HTMLButtonElement).onclick = openSearchModal;
   (document.getElementById("open-create-group") as HTMLButtonElement).onclick = () => openCreateGroupModal(profile);
-  (document.getElementById("nav-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
-  (document.getElementById("nav-theme") as HTMLButtonElement).onclick = () => {
-    const nextTheme: ThemeMode = readTheme() === "dark" ? "light" : "dark";
-    applyTheme(nextTheme);
+  (document.getElementById("open-mobile-menu") as HTMLButtonElement).onclick = () => {
+    openModal(`
+      <h2>Меню</h2>
+      <div class="form">
+        <button type="button" id="m-profile" class="ghost-btn">Профиль</button>
+        <button type="button" id="m-theme" class="ghost-btn">${getThemeToggleText(readTheme())}</button>
+        <button type="button" id="m-logout" class="ghost-btn">Выйти</button>
+      </div>
+    `);
+    (document.getElementById("m-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
+    (document.getElementById("m-theme") as HTMLButtonElement).onclick = () => {
+      const nextTheme: ThemeMode = readTheme() === "dark" ? "light" : "dark";
+      applyTheme(nextTheme);
+      closeModal();
+    };
+    (document.getElementById("m-logout") as HTMLButtonElement).onclick = async () => signOut(auth);
   };
-  (document.getElementById("nav-logout") as HTMLButtonElement).onclick = async () => signOut(auth);
 
   if (isAdmin(profile)) {
     const adminBtn = document.getElementById("open-admin") as HTMLButtonElement | null;
@@ -906,13 +911,13 @@ const openChat = async (chatId: string, peerId: string) => {
     <section class="chat-room">
       <header class="chat-head">
         <button id="back-mobile" class="ghost-btn small-btn mobile-only" type="button">←</button>
-        <div class="avatar">${
+        <button id="chat-avatar" type="button" class="avatar avatar-btn">${
           type === "group"
             ? escapeHtml(chat?.avatarSticker || "👥")
             : peer?.avatarUrl
               ? `<img src="${peer.avatarUrl}" alt="" />`
               : escapeHtml(peer?.avatarSticker || "👤")
-        }</div>
+        }</button>
         <div>
           <button id="chat-title" type="button" class="title-btn">
             ${escapeHtml(type === "group" ? chat?.title || "Группа" : peer?.nickname || "Пользователь")}
@@ -950,6 +955,10 @@ const openChat = async (chatId: string, peerId: string) => {
 
   const titleBtn = document.getElementById("chat-title") as HTMLButtonElement;
   titleBtn.onclick = () => {
+    if (type === "group") void openGroupInfoModal(chatId);
+  };
+  const avatarBtn = document.getElementById("chat-avatar") as HTMLButtonElement;
+  avatarBtn.onclick = () => {
     if (type === "group") void openGroupInfoModal(chatId);
   };
 
