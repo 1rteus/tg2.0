@@ -53,6 +53,7 @@ const THEME_KEY = "tg_theme";
 const profileCache = new Map<string, Profile>();
 let currentProfile: Profile | null = null;
 const ADMIN_SHOW_DELETED_KEY = "tg_admin_show_deleted";
+let mobileView: "list" | "chat" = "list";
 
 type ThemeMode = "light" | "dark";
 type MessageDoc = {
@@ -131,6 +132,7 @@ const isAdmin = (profile: Profile): boolean => profile.username === "admin";
 const randomSticker = (): string => stickers[Math.floor(Math.random() * stickers.length)] || "🐼";
 const readAdminShowDeleted = (): boolean => localStorage.getItem(ADMIN_SHOW_DELETED_KEY) === "1";
 const setAdminShowDeleted = (value: boolean) => localStorage.setItem(ADMIN_SHOW_DELETED_KEY, value ? "1" : "0");
+const isMobile = (): boolean => window.matchMedia?.("(max-width: 960px)")?.matches ?? window.innerWidth <= 960;
 const readTheme = (): ThemeMode => {
   const saved = localStorage.getItem(THEME_KEY);
   return saved === "dark" ? "dark" : "light";
@@ -309,20 +311,35 @@ const renderApp = (user: User, profile: Profile) => {
   const currentTheme = readTheme();
   currentProfile = profile;
   appNode.innerHTML = `
-  <main class="shell">
-    <aside class="left">
-      <header class="left-head">
+  <main class="shell ${isMobile() ? "mobile" : ""}" data-mobile-view="${escapeHtml(mobileView)}">
+    <aside class="left" id="left-panel">
+      <header class="left-head mobile-only">
+        <div class="logo">Чаты</div>
+        <div class="left-actions">
+          <button id="open-create-group" class="icon-btn" title="Создать группу">✚</button>
+          <button id="open-search" class="icon-btn" title="Поиск">🔎</button>
+        </div>
+      </header>
+      <header class="left-head desktop-only">
         <div class="logo">tg2.0</div>
         <div class="left-actions">
           ${isAdmin(profile) ? `<button id="open-admin" class="icon-btn" title="Админ">🛠️</button>` : ""}
-          <button id="open-create-group" class="icon-btn" title="Создать группу">➕</button>
-          <button id="open-search" class="icon-btn" title="Найти">🔎</button>
+          <button id="open-create-group-d" class="icon-btn" title="Создать группу">➕</button>
+          <button id="open-search-d" class="icon-btn" title="Найти">🔎</button>
         </div>
       </header>
       <section id="chat-list" class="chat-list"></section>
+
+      <nav class="bottom-nav mobile-only">
+        <button id="nav-profile" class="nav-btn">👤</button>
+        <button class="nav-btn active">💬</button>
+        <button id="nav-theme" class="nav-btn">🌓</button>
+        <button id="nav-logout" class="nav-btn">⎋</button>
+      </nav>
     </aside>
-    <section class="right">
-      <header class="topbar">
+
+    <section class="right" id="right-panel">
+      <header class="topbar desktop-only">
         <button id="open-profile" class="ghost-btn">${escapeHtml(profile.nickname)}</button>
         <button id="theme-toggle" class="ghost-btn">${getThemeToggleText(currentTheme)}</button>
         <button id="logout" class="ghost-btn">Выйти</button>
@@ -334,22 +351,70 @@ const renderApp = (user: User, profile: Profile) => {
   <div id="modal" class="modal hidden"></div>
   `;
 
-  const logoutBtn = document.getElementById("logout") as HTMLButtonElement;
-  const themeBtn = document.getElementById("theme-toggle") as HTMLButtonElement;
-  themeBtn.onclick = () => {
-    const nextTheme: ThemeMode = readTheme() === "dark" ? "light" : "dark";
-    applyTheme(nextTheme);
-    themeBtn.textContent = getThemeToggleText(nextTheme);
-  };
-  logoutBtn.onclick = async () => signOut(auth);
-  (document.getElementById("open-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
+  const desktopLogout = document.getElementById("logout") as HTMLButtonElement | null;
+  const desktopTheme = document.getElementById("theme-toggle") as HTMLButtonElement | null;
+  if (desktopTheme) {
+    desktopTheme.onclick = () => {
+      const nextTheme: ThemeMode = readTheme() === "dark" ? "light" : "dark";
+      applyTheme(nextTheme);
+      desktopTheme.textContent = getThemeToggleText(nextTheme);
+    };
+  }
+  if (desktopLogout) desktopLogout.onclick = async () => signOut(auth);
+  const desktopProfileBtn = document.getElementById("open-profile") as HTMLButtonElement | null;
+  if (desktopProfileBtn) desktopProfileBtn.onclick = () => openProfileModal(user.uid);
+  const desktopSearch = document.getElementById("open-search-d") as HTMLButtonElement | null;
+  if (desktopSearch) desktopSearch.onclick = openSearchModal;
+  const desktopCreateGroup = document.getElementById("open-create-group-d") as HTMLButtonElement | null;
+  if (desktopCreateGroup) desktopCreateGroup.onclick = () => openCreateGroupModal(profile);
+
   (document.getElementById("open-search") as HTMLButtonElement).onclick = openSearchModal;
   (document.getElementById("open-create-group") as HTMLButtonElement).onclick = () => openCreateGroupModal(profile);
+  (document.getElementById("nav-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
+  (document.getElementById("nav-theme") as HTMLButtonElement).onclick = () => {
+    const nextTheme: ThemeMode = readTheme() === "dark" ? "light" : "dark";
+    applyTheme(nextTheme);
+  };
+  (document.getElementById("nav-logout") as HTMLButtonElement).onclick = async () => signOut(auth);
+
   if (isAdmin(profile)) {
     const adminBtn = document.getElementById("open-admin") as HTMLButtonElement | null;
     if (adminBtn) adminBtn.onclick = openAdminModal;
   }
+
   subscribeChatList(user.uid);
+};
+
+const setMobileView = (view: "list" | "chat") => {
+  mobileView = view;
+  const shell = document.querySelector<HTMLElement>(".shell.mobile");
+  if (shell) shell.dataset.mobileView = view;
+};
+
+const openGroupInfoModal = async (chatId: string) => {
+  const snap = await getDoc(doc(db, "chats", chatId));
+  if (!snap.exists()) return;
+  const chat = snap.data() as ChatDoc;
+  const members = await Promise.all((chat.participants || []).map((uid) => getProfile(uid)));
+  openModal(`
+    <h2>${escapeHtml(chat.title || "Группа")}</h2>
+    <p class="sub">${escapeHtml((chat.participants?.length || 0).toString())} участников</p>
+    <div class="admin-list">
+      ${members
+        .filter(Boolean)
+        .map((p) => {
+          const prof = p as Profile;
+          const av = prof.avatarUrl ? `<img src="${prof.avatarUrl}" alt="" />` : escapeHtml(prof.avatarSticker);
+          return `<div class="admin-row">
+            <span class="member">
+              <span class="avatar small">${av}</span>
+              <span>${escapeHtml(prof.nickname)} <span class="muted">@${escapeHtml(prof.username)}</span></span>
+            </span>
+          </div>`;
+        })
+        .join("")}
+    </div>
+  `);
 };
 
 const openAdminModal = async () => {
@@ -835,10 +900,12 @@ const openChat = async (chatId: string, peerId: string) => {
   const chat = chatSnap.exists() ? (chatSnap.data() as ChatDoc) : null;
   const type = chat?.type || (peerId ? "dm" : "group");
   const peer = peerId ? await getProfile(peerId) : null;
+  if (isMobile()) setMobileView("chat");
   content.classList.remove("empty");
   content.innerHTML = `
     <section class="chat-room">
       <header class="chat-head">
+        <button id="back-mobile" class="ghost-btn small-btn mobile-only" type="button">←</button>
         <div class="avatar">${
           type === "group"
             ? escapeHtml(chat?.avatarSticker || "👥")
@@ -847,31 +914,66 @@ const openChat = async (chatId: string, peerId: string) => {
               : escapeHtml(peer?.avatarSticker || "👤")
         }</div>
         <div>
-          <strong>${escapeHtml(type === "group" ? chat?.title || "Группа" : peer?.nickname || "Пользователь")}</strong>
+          <button id="chat-title" type="button" class="title-btn">
+            ${escapeHtml(type === "group" ? chat?.title || "Группа" : peer?.nickname || "Пользователь")}
+          </button>
           <p>${
             type === "group"
               ? escapeHtml(`${chat?.participants?.length || 0} участников`)
               : `@${escapeHtml(peer?.username || "")}`
           }</p>
         </div>
-        <button id="collapse-chat" class="ghost-btn small-btn" type="button">Свернуть</button>
+        <button id="collapse-chat" class="ghost-btn small-btn desktop-only" type="button">Свернуть</button>
       </header>
       <div id="messages" class="messages"></div>
       <form id="send-form" class="send">
         <input id="message-input" placeholder="Сообщение" />
         <button class="primary-btn">Отправить</button>
       </form>
+      <p id="typing" class="status typing"></p>
       <p id="send-status" class="status"></p>
     </section>
   `;
 
   const messagesNode = document.getElementById("messages") as HTMLDivElement;
-  const collapseBtn = document.getElementById("collapse-chat") as HTMLButtonElement;
-  collapseBtn.onclick = () => {
-    activeChatId = "";
-    activePeerId = "";
-    content.classList.add("empty");
-    content.textContent = "Пока что чатов нет";
+  const typingNode = document.getElementById("typing") as HTMLParagraphElement;
+  const backBtn = document.getElementById("back-mobile") as HTMLButtonElement | null;
+  if (backBtn) {
+    backBtn.onclick = () => {
+      setMobileView("list");
+      activeChatId = "";
+      activePeerId = "";
+      content.classList.add("empty");
+      content.textContent = "Пока что чатов нет";
+    };
+  }
+
+  const titleBtn = document.getElementById("chat-title") as HTMLButtonElement;
+  titleBtn.onclick = () => {
+    if (type === "group") void openGroupInfoModal(chatId);
+  };
+
+  const collapseBtn = document.getElementById("collapse-chat") as HTMLButtonElement | null;
+  if (collapseBtn) {
+    collapseBtn.onclick = () => {
+      activeChatId = "";
+      activePeerId = "";
+      content.classList.add("empty");
+      content.textContent = "Пока что чатов нет";
+    };
+  }
+
+  const meTyping = auth.currentUser;
+  let typingTimer: number | undefined;
+  const setTyping = async (on: boolean) => {
+    if (!meTyping || !currentProfile) return;
+    try {
+      await updateDoc(doc(db, "chats", chatId), {
+        [`typing.${meTyping.uid}`]: on ? { username: currentProfile.username, ts: Date.now() } : null,
+      } as Record<string, unknown>);
+    } catch {
+      // ignore
+    }
   };
   const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "asc"));
   onSnapshot(q, async (snapshot) => {
@@ -925,9 +1027,25 @@ const openChat = async (chatId: string, peerId: string) => {
     });
   });
 
+  onSnapshot(doc(db, "chats", chatId), (snap) => {
+    const data = snap.data() as any;
+    const typing = (data?.typing || {}) as Record<string, { username?: string; ts?: number } | null>;
+    const now = Date.now();
+    const others = Object.entries(typing)
+      .filter(([uid, v]) => uid !== auth.currentUser?.uid && v && (v.ts ? now - v.ts < 4500 : false))
+      .map(([, v]) => v?.username)
+      .filter(Boolean) as string[];
+    typingNode.textContent = others.length ? `@${others[0]} печатает...` : "";
+  });
+
   const form = document.getElementById("send-form") as HTMLFormElement;
   const input = document.getElementById("message-input") as HTMLInputElement;
   const status = document.getElementById("send-status") as HTMLParagraphElement;
+  input.oninput = () => {
+    void setTyping(true);
+    if (typingTimer) window.clearTimeout(typingTimer);
+    typingTimer = window.setTimeout(() => void setTyping(false), 1600);
+  };
 
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -935,6 +1053,7 @@ const openChat = async (chatId: string, peerId: string) => {
     if (!user) return;
     status.textContent = "Отправляем...";
     try {
+      void setTyping(false);
       const text = input.value.trim();
       if (!text) {
         status.textContent = "Напиши сообщение";

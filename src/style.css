@@ -199,6 +199,74 @@ textarea:focus {
   font-weight: 700;
 }
 
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: inherit;
+}
+
+.shell.mobile {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+.shell.mobile[data-mobile-view="list"] #right-panel {
+  display: none;
+}
+.shell.mobile[data-mobile-view="chat"] #left-panel {
+  display: none;
+}
+.shell.mobile[data-mobile-view="chat"] #right-panel {
+  display: grid;
+}
+
+.bottom-nav {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+}
+.nav-btn {
+  border: none;
+  background: var(--button-bg);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.nav-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.title-btn {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.typing {
+  min-height: 18px;
+}
+
+.avatar.small {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.member {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .chat-list {
   display: grid;
   gap: 8px;
@@ -573,6 +641,13 @@ textarea:focus {
 }
 
 @media (max-width: 960px) {
+  .mobile-only {
+    display: inherit;
+  }
+  .desktop-only {
+    display: none;
+  }
+
   .shell {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(190px, 42vh) 1fr;
