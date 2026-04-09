@@ -135,29 +135,9 @@ const setupMobileViewportLock = () => {
 const reserveUsername = async (uid: string, rawUsername: string) => {
   const username = normalizeUsername(rawUsername);
   const usernameRef = doc(db, "usernames", username);
-  const usernameSnap = await getDoc(usernameRef);
-  if (usernameSnap.exists() && usernameSnap.data().uid !== uid) {
-    throw new Error("Такой username уже занят");
-  }
-  await setDoc(usernameRef, { uid }, { merge: true });
+  // Don't read before login. If username exists, this becomes an UPDATE and should be blocked by rules.
+  await setDoc(usernameRef, { uid }, { merge: false });
   return username;
-};
-
-const findUsernameByUid = async (uid: string): Promise<string | null> => {
-  const q = query(collection(db, "usernames"), where("uid", "==", uid), limit(1));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  return snap.docs[0].id;
-};
-
-const createUniqueUsername = async (email: string): Promise<string> => {
-  const base = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 14) || "user";
-  for (let i = 0; i < 20; i += 1) {
-    const candidate = i === 0 ? base : `${base}_${Math.floor(Math.random() * 9999)}`;
-    const candidateRef = doc(db, "usernames", candidate);
-    if (!(await getDoc(candidateRef)).exists()) return candidate;
-  }
-  return `user_${Date.now().toString().slice(-8)}`;
 };
 
 const ensureUserProfile = async (user: User): Promise<Profile> => {
@@ -169,11 +149,13 @@ const ensureUserProfile = async (user: User): Promise<Profile> => {
     throw new Error("Этот аккаунт удален админом");
   }
 
-  let username = await findUsernameByUid(user.uid);
-  if (!username) {
-    username = await createUniqueUsername(user.email || "user");
+  const derivedUsername = (user.email || "user").split("@")[0];
+  const username = normalizeUsername(derivedUsername);
+  try {
+    await reserveUsername(user.uid, username);
+  } catch {
+    // Username may already exist (update blocked). Profile can still be created.
   }
-  await reserveUsername(user.uid, username);
   const profile: Profile = {
     uid: user.uid,
     email: (user.email || "").toLowerCase(),
@@ -241,14 +223,14 @@ const renderAuth = () => {
       let nextUser: User | null = null;
       let nextProfile: Profile | null = null;
       if (mode === "signup") {
-        const usernameRef = doc(db, "usernames", username);
-        if ((await getDoc(usernameRef)).exists()) {
-          throw new Error("Такой username уже занят");
-        }
         const authEmail = usernameToEmail(username);
         const cred = await createUserWithEmailAndPassword(auth, authEmail, passwordInput.value);
         try {
-          await reserveUsername(cred.user.uid, username);
+          try {
+            await reserveUsername(cred.user.uid, username);
+          } catch {
+            throw new Error("Такой username уже занят");
+          }
           await setDoc(doc(db, "users", cred.user.uid), {
             uid: cred.user.uid,
             email: authEmail,
@@ -274,19 +256,7 @@ const renderAuth = () => {
           throw error;
         }
       } else {
-        const usernameDoc = await getDoc(doc(db, "usernames", username));
-        if (!usernameDoc.exists()) {
-          throw new Error("Пользователь с таким username не найден");
-        }
-        const uid = String(usernameDoc.data().uid || "");
-        if (!uid) {
-          throw new Error("Ошибка данных пользователя");
-        }
-        const profileDoc = await getDoc(doc(db, "users", uid));
-        const authEmail = profileDoc.exists()
-          ? String((profileDoc.data().email as string) || usernameToEmail(username))
-          : usernameToEmail(username);
-        const cred = await signInWithEmailAndPassword(auth, authEmail, passwordInput.value);
+        const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), passwordInput.value);
         nextUser = cred.user;
         nextProfile = await ensureUserProfile(cred.user);
       }
