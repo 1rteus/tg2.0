@@ -457,6 +457,49 @@ textarea:focus {
   border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
+.owner-badge {
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+
+.sticker-btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.sticker-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.msg-row.system {
+  justify-content: center;
+}
+
+.msg-row.system .msg {
+  background: transparent;
+  border: 1px dashed var(--border);
+  max-width: min(560px, 100%);
+}
+
+.msg-row.system .msg-bottom,
+.msg-row.system .msg-avatar,
+.msg-row.system .msg-actions {
+  display: none !important;
+}
+
 .admin-list {
   max-height: 220px;
   overflow-y: auto;
