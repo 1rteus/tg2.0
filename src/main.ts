@@ -963,6 +963,22 @@ const isGroupJuniorAdmin = (chat: ChatDoc, uid: string | undefined | null): bool
 const canAddGroupMembers = (chat: ChatDoc, uid: string | undefined | null): boolean =>
   isGroupOwner(chat, uid) || isGroupJuniorAdmin(chat, uid);
 
+const sanitizeChatParticipants = async (chatId: string, data: ChatDoc | null | undefined) => {
+  if (!data) return;
+  const participants = Array.isArray(data.participants) ? data.participants : [];
+  const admins = Array.isArray(data.admins) ? data.admins : [];
+  const hasEmpty = participants.includes("") || admins.includes("");
+  if (!hasEmpty) return;
+  try {
+    await updateDoc(doc(db, "chats", chatId), {
+      participants: arrayRemove(""),
+      admins: arrayRemove(""),
+    });
+  } catch {
+    // ignore
+  }
+};
+
 const openMessageActionsModal = (opts: {
   chatId: string;
   messageId: string;
@@ -1232,6 +1248,7 @@ const openChat = async (chatId: string, peerId: string) => {
   const chat = chatSnap.exists() ? (chatSnap.data() as ChatDoc) : null;
   const type = chat?.type || (peerId ? "dm" : "group");
   const peer = peerId ? await getProfile(peerId) : null;
+  if (type === "group") void sanitizeChatParticipants(chatId, chat);
   if (isMobile()) setMobileView("chat");
   content.classList.remove("empty");
   content.innerHTML = `
@@ -1376,6 +1393,7 @@ const openChat = async (chatId: string, peerId: string) => {
 
   onSnapshot(doc(db, "chats", chatId), (snap) => {
     const data = snap.data() as any;
+    if (type === "group") void sanitizeChatParticipants(chatId, data as ChatDoc);
     const typing = (data?.typing || {}) as Record<string, { username?: string; ts?: number } | null>;
     const now = Date.now();
     const others = Object.entries(typing)
