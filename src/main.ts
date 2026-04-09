@@ -11,6 +11,7 @@ import {
 import {
   arrayUnion,
   collection,
+  collectionGroup,
   documentId,
   doc,
   getDoc,
@@ -50,13 +51,20 @@ const stickers = ["🐼", "🦊", "🐱", "🐸", "🦄", "🐻", "🌸", "⚡"]
 let activeChatId = "";
 let activePeerId = "";
 const THEME_KEY = "tg_theme";
+const profileCache = new Map<string, Profile>();
 
 type ThemeMode = "light" | "dark";
 type MessageDoc = {
+  id?: string;
   senderId: string;
   text: string;
   createdAt?: { toMillis?: () => number };
   readBy?: string[];
+  editedAt?: unknown;
+  deleted?: boolean;
+  deletedAt?: unknown;
+  deletedBy?: string;
+  deletedText?: string;
 };
 
 type Profile = {
@@ -67,6 +75,17 @@ type Profile = {
   bio: string;
   avatarUrl: string;
   avatarSticker: string;
+};
+
+type ChatDoc = {
+  type?: "dm" | "group";
+  title?: string;
+  avatarSticker?: string;
+  participants: string[];
+  updatedAt?: unknown;
+  lastMessage?: string;
+  createdAt?: unknown;
+  createdBy?: string;
 };
 
 if (!isFirebaseReady) {
@@ -107,6 +126,8 @@ const normalizeUsername = (rawUsername: string): string => {
   return username;
 };
 const usernameToEmail = (username: string): string => `${username}@tg.local`;
+const isAdmin = (profile: Profile): boolean => profile.username === "admin";
+const randomSticker = (): string => stickers[Math.floor(Math.random() * stickers.length)] || "🐼";
 const readTheme = (): ThemeMode => {
   const saved = localStorage.getItem(THEME_KEY);
   return saved === "dark" ? "dark" : "light";
@@ -167,6 +188,16 @@ const ensureUserProfile = async (user: User): Promise<Profile> => {
   };
   await setDoc(userRef, { ...profile, createdAt: serverTimestamp() }, { merge: true });
   return profile;
+};
+
+const getProfile = async (uid: string): Promise<Profile | null> => {
+  const cached = profileCache.get(uid);
+  if (cached) return cached;
+  const snap = await getDoc(doc(db, "users", uid));
+  if (!snap.exists()) return null;
+  const p = snap.data() as Profile;
+  profileCache.set(uid, p);
+  return p;
 };
 
 const renderAuth = () => {
@@ -279,6 +310,8 @@ const renderApp = (user: User, profile: Profile) => {
       <header class="left-head">
         <div class="logo">tg2.0</div>
         <div class="left-actions">
+          ${isAdmin(profile) ? `<button id="open-admin" class="icon-btn" title="Админ">🛠️</button>` : ""}
+          <button id="open-create-group" class="icon-btn" title="Создать группу">➕</button>
           <button id="open-search" class="icon-btn" title="Найти">🔎</button>
         </div>
       </header>
@@ -307,7 +340,52 @@ const renderApp = (user: User, profile: Profile) => {
   logoutBtn.onclick = async () => signOut(auth);
   (document.getElementById("open-profile") as HTMLButtonElement).onclick = () => openProfileModal(user.uid);
   (document.getElementById("open-search") as HTMLButtonElement).onclick = openSearchModal;
+  (document.getElementById("open-create-group") as HTMLButtonElement).onclick = () => openCreateGroupModal(profile);
+  if (isAdmin(profile)) {
+    const adminBtn = document.getElementById("open-admin") as HTMLButtonElement | null;
+    if (adminBtn) adminBtn.onclick = openAdminModal;
+  }
   subscribeChatList(user.uid);
+};
+
+const openAdminModal = async () => {
+  openModal(`
+    <h2>Админ</h2>
+    <h3>Пользователи</h3>
+    <div id="admin-users" class="admin-list"><p class="status">Загрузка...</p></div>
+    <h3>Удалённые сообщения</h3>
+    <div id="admin-deleted" class="admin-list"><p class="status">Загрузка...</p></div>
+  `);
+  const usersNode = document.getElementById("admin-users") as HTMLDivElement;
+  const deletedNode = document.getElementById("admin-deleted") as HTMLDivElement;
+
+  const usersSnap = await getDocs(query(collection(db, "users"), limit(200)));
+  const users = usersSnap.docs.map((d) => d.data() as Profile).sort((a, b) => a.username.localeCompare(b.username));
+  usersNode.innerHTML = users
+    .map(
+      (u) => `<div class="admin-row">
+        <span>${escapeHtml(u.nickname)} — @${escapeHtml(u.username)} (${escapeHtml(u.uid.slice(0, 6))}…)</span>
+      </div>`
+    )
+    .join("");
+
+  const deletedSnap = await getDocs(
+    query(collectionGroup(db, "messages"), where("deleted", "==", true), orderBy("deletedAt", "desc"), limit(50))
+  );
+  if (deletedSnap.empty) {
+    deletedNode.innerHTML = `<p class="status">Удалённых сообщений нет</p>`;
+  } else {
+    deletedNode.innerHTML = deletedSnap.docs
+      .map((d) => {
+        const msg = d.data() as MessageDoc;
+        const path = d.ref.path;
+        const deletedText = msg.deletedText || "(пусто)";
+        return `<div class="admin-row">
+          <span><strong>chat:</strong> ${escapeHtml(path)}<br/><strong>text:</strong> ${escapeHtml(deletedText)}</span>
+        </div>`;
+      })
+      .join("");
+  }
 };
 
 const subscribeChatList = (uid: string) => {
@@ -327,30 +405,170 @@ const subscribeChatList = (uid: string) => {
       });
       const entries = await Promise.all(
         sortedDocs.map(async (chat) => {
-          const data = chat.data();
+          const data = chat.data() as ChatDoc;
+          const type = data.type || "dm";
+          if (type === "group") {
+            const title = data.title || "Группа";
+            const sticker = data.avatarSticker || "👥";
+            return `<button class="chat-item" data-chat="${chat.id}" data-type="group">
+              <div class="avatar">${escapeHtml(sticker)}</div>
+              <div>
+                <strong>${escapeHtml(title)}</strong>
+                <p>${escapeHtml((data.participants?.length || 0).toString())} участников</p>
+              </div>
+            </button>`;
+          }
+
           const peer = (data.participants as string[]).find((id) => id !== uid);
           if (!peer) return "";
-          const peerSnap = await getDoc(doc(db, "users", peer));
-          if (!peerSnap.exists()) return "";
-          const p = peerSnap.data() as Profile;
-          return `<button class="chat-item" data-chat="${chat.id}" data-peer="${peer}">
-          <div class="avatar">${p.avatarUrl ? `<img src="${p.avatarUrl}" alt="" />` : p.avatarSticker}</div>
-          <div>
-            <strong>${escapeHtml(p.nickname)}</strong>
-            <p>@${escapeHtml(p.username)}</p>
-          </div>
-        </button>`;
+          const p = await getProfile(peer);
+          if (!p) return "";
+          return `<button class="chat-item" data-chat="${chat.id}" data-peer="${peer}" data-type="dm">
+            <div class="avatar">${p.avatarUrl ? `<img src="${p.avatarUrl}" alt="" />` : escapeHtml(p.avatarSticker)}</div>
+            <div>
+              <strong>${escapeHtml(p.nickname)}</strong>
+              <p>@${escapeHtml(p.username)}</p>
+            </div>
+          </button>`;
         })
       );
       listNode.innerHTML = entries.join("");
       listNode.querySelectorAll<HTMLButtonElement>(".chat-item").forEach((btn) => {
-        btn.onclick = () => openChat(btn.dataset.chat!, btn.dataset.peer!);
+        btn.onclick = () => {
+          const chatId = btn.dataset.chat!;
+          const type = (btn.dataset.type || "dm") as "dm" | "group";
+          if (type === "group") {
+            openChat(chatId, "");
+          } else {
+            openChat(chatId, btn.dataset.peer!);
+          }
+        };
       });
     },
     () => {
       listNode.innerHTML = `<div class="empty-block">Не удалось загрузить чаты. Обнови страницу.</div>`;
     }
   );
+};
+
+const openCreateGroupModal = (meProfile: Profile) => {
+  openModal(`
+    <h2>Создать группу</h2>
+    <form id="group-form" class="form" autocomplete="off">
+      <label>Название
+        <input id="group-title" maxlength="40" placeholder="Моя группа" required />
+      </label>
+      <label>Добавить участников (по username)
+        <input id="group-search" placeholder="Введи username" />
+      </label>
+      <div id="group-results" class="search-list"></div>
+      <div id="group-selected" class="selected-list"></div>
+      <button class="primary-btn" type="submit">Создать</button>
+      <p id="group-status" class="status"></p>
+    </form>
+  `);
+
+  const form = document.getElementById("group-form") as HTMLFormElement;
+  const titleInput = document.getElementById("group-title") as HTMLInputElement;
+  const searchInput = document.getElementById("group-search") as HTMLInputElement;
+  const resultsNode = document.getElementById("group-results") as HTMLDivElement;
+  const selectedNode = document.getElementById("group-selected") as HTMLDivElement;
+  const statusNode = document.getElementById("group-status") as HTMLParagraphElement;
+
+  const selected = new Map<string, Profile>();
+  const renderSelected = () => {
+    if (selected.size === 0) {
+      selectedNode.innerHTML = `<p class="status">Участники не выбраны</p>`;
+      return;
+    }
+    selectedNode.innerHTML = [...selected.values()]
+      .map(
+        (p) => `<div class="pill">
+          <span>@${escapeHtml(p.username)}</span>
+          <button type="button" class="pill-x" data-uid="${p.uid}">✕</button>
+        </div>`
+      )
+      .join("");
+    selectedNode.querySelectorAll<HTMLButtonElement>(".pill-x").forEach((b) => {
+      b.onclick = () => {
+        selected.delete(b.dataset.uid || "");
+        renderSelected();
+      };
+    });
+  };
+  renderSelected();
+
+  let latest = "";
+  const renderResults = async (term: string) => {
+    latest = term;
+    const u = term.trim().toLowerCase();
+    if (!u) {
+      resultsNode.innerHTML = "";
+      return;
+    }
+    const q = query(
+      collection(db, "usernames"),
+      where(documentId(), ">=", u),
+      where(documentId(), "<=", `${u}\uf8ff`),
+      limit(20)
+    );
+    const snap = await getDocs(q);
+    if (latest !== term) return;
+    if (snap.empty) {
+      resultsNode.innerHTML = `<p class="status">Никого не нашли</p>`;
+      return;
+    }
+    const cards: string[] = [];
+    for (const unameDoc of snap.docs) {
+      const uid = String(unameDoc.data().uid || "");
+      if (!uid || uid === meProfile.uid) continue;
+      const p = await getProfile(uid);
+      if (!p) continue;
+      cards.push(`<div class="admin-row">
+        <span>${escapeHtml(p.nickname)} (@${escapeHtml(p.username)})</span>
+        <button type="button" class="ghost-btn add-to-group" data-uid="${p.uid}">Добавить</button>
+      </div>`);
+    }
+    resultsNode.innerHTML = cards.join("");
+    resultsNode.querySelectorAll<HTMLButtonElement>(".add-to-group").forEach((b) => {
+      b.onclick = async () => {
+        const uid = b.dataset.uid || "";
+        const p = await getProfile(uid);
+        if (p) {
+          selected.set(uid, p);
+          renderSelected();
+        }
+      };
+    });
+  };
+  searchInput.oninput = () => void renderResults(searchInput.value);
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    statusNode.textContent = "Создаём...";
+    const me = auth.currentUser;
+    if (!me) return;
+    try {
+      const title = titleInput.value.trim();
+      if (!title) throw new Error("Название группы обязательно");
+      const participants = [me.uid, ...selected.keys()];
+      const chatRef = doc(collection(db, "chats"));
+      await setDoc(chatRef, {
+        type: "group",
+        title,
+        avatarSticker: randomSticker(),
+        participants,
+        createdAt: serverTimestamp(),
+        createdBy: me.uid,
+        updatedAt: serverTimestamp(),
+        lastMessage: "",
+      } satisfies ChatDoc);
+      closeModal();
+      openChat(chatRef.id, "");
+    } catch (err) {
+      statusNode.textContent = err instanceof Error ? err.message : "Не удалось создать группу";
+    }
+  };
 };
 
 const openModal = (html: string) => {
@@ -366,6 +584,73 @@ const closeModal = () => {
   const modal = document.getElementById("modal") as HTMLDivElement;
   modal.classList.add("hidden");
   modal.innerHTML = "";
+};
+
+const openMessageActionsModal = (opts: {
+  chatId: string;
+  messageId: string;
+  currentText: string;
+  deleted: boolean;
+}) => {
+  openModal(`
+    <h2>Сообщение</h2>
+    <div class="form">
+      <label>Текст
+        <textarea id="edit-message-text" ${opts.deleted ? "disabled" : ""}>${escapeHtml(opts.currentText || "")}</textarea>
+      </label>
+      <div class="row">
+        <button type="button" id="edit-save" class="primary-btn" ${opts.deleted ? "disabled" : ""}>Сохранить</button>
+        <button type="button" id="edit-delete" class="ghost-btn danger-btn">Удалить</button>
+      </div>
+      <p id="edit-status" class="status"></p>
+    </div>
+  `);
+
+  const status = document.getElementById("edit-status") as HTMLParagraphElement;
+  const saveBtn = document.getElementById("edit-save") as HTMLButtonElement;
+  const delBtn = document.getElementById("edit-delete") as HTMLButtonElement;
+  const textArea = document.getElementById("edit-message-text") as HTMLTextAreaElement;
+
+  saveBtn.onclick = async () => {
+    const me = auth.currentUser;
+    if (!me) return;
+    status.textContent = "Сохраняем...";
+    try {
+      const next = textArea.value.trim();
+      if (!next) throw new Error("Текст не может быть пустым");
+      await updateDoc(doc(db, "chats", opts.chatId, "messages", opts.messageId), {
+        text: next,
+        editedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, "chats", opts.chatId), { updatedAt: serverTimestamp(), lastMessage: next });
+      closeModal();
+    } catch (e) {
+      status.textContent = e instanceof Error ? e.message : "Не удалось сохранить";
+    }
+  };
+
+  delBtn.onclick = async () => {
+    const me = auth.currentUser;
+    if (!me) return;
+    if (!confirm("Удалить сообщение у всех?")) return;
+    status.textContent = "Удаляем...";
+    try {
+      await updateDoc(doc(db, "chats", opts.chatId, "messages", opts.messageId), {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        deletedBy: me.uid,
+        deletedText: opts.currentText || "",
+        text: "",
+      });
+      await updateDoc(doc(db, "chats", opts.chatId), {
+        updatedAt: serverTimestamp(),
+        lastMessage: "Сообщение удалено",
+      });
+      closeModal();
+    } catch (e) {
+      status.textContent = e instanceof Error ? e.message : "Не удалось удалить";
+    }
+  };
 };
 
 const openProfileModal = async (uid: string) => {
@@ -510,14 +795,34 @@ const openSearchModal = () => {
   void renderSearchResults("");
 };
 
-const renderMessage = (message: MessageDoc, mine: boolean, peerId: string): string => {
-  const body = String(message.text || "");
-  const read = Boolean(message.readBy?.includes(peerId));
-  const checks = mine ? (read ? "✓✓" : "✓") : "";
+const renderMessage = (params: {
+  message: MessageDoc;
+  mine: boolean;
+  peerId: string;
+  sender: Profile | null;
+  showSenderLabel: boolean;
+  canEdit: boolean;
+}): string => {
+  const { message, mine, peerId, sender, showSenderLabel, canEdit } = params;
+  const body = message.deleted ? "Сообщение удалено" : String(message.text || "");
+  const read = peerId ? Boolean(message.readBy?.includes(peerId)) : false;
+  const checks = mine && peerId ? (read ? "✓✓" : "✓") : "";
+  const edited = Boolean(message.editedAt) && !message.deleted;
+  const avatar = sender?.avatarUrl
+    ? `<img src="${sender.avatarUrl}" alt="" />`
+    : escapeHtml(sender?.avatarSticker || "👤");
+  const username = sender ? `@${sender.username}` : "@unknown";
   return `
-    <div class="msg ${mine ? "mine" : ""}">
-      ${body ? `<p>${escapeHtml(body)}</p>` : ""}
-      ${checks ? `<span class="msg-meta">${checks}</span>` : ""}
+    <div class="msg-row ${mine ? "mine" : ""}" data-mid="${escapeHtml(message.id || "")}">
+      <div class="msg">
+        <p class="${message.deleted ? "muted" : ""}">${escapeHtml(body)}</p>
+        <div class="msg-bottom">
+          ${showSenderLabel ? `<span class="msg-user">${escapeHtml(username)}</span>` : `<span></span>`}
+          <span class="msg-meta">${edited ? "изменено" : ""} ${checks}</span>
+        </div>
+      </div>
+      <div class="avatar msg-avatar">${avatar}</div>
+      ${canEdit ? `<button type="button" class="msg-actions" title="Действия">⋯</button>` : ""}
     </div>
   `;
 };
@@ -526,16 +831,28 @@ const openChat = async (chatId: string, peerId: string) => {
   activeChatId = chatId;
   activePeerId = peerId;
   const content = document.getElementById("content") as HTMLDivElement;
-  const peerSnap = await getDoc(doc(db, "users", peerId));
-  const peer = peerSnap.data() as Profile;
+  const chatSnap = await getDoc(doc(db, "chats", chatId));
+  const chat = chatSnap.exists() ? (chatSnap.data() as ChatDoc) : null;
+  const type = chat?.type || (peerId ? "dm" : "group");
+  const peer = peerId ? await getProfile(peerId) : null;
   content.classList.remove("empty");
   content.innerHTML = `
     <section class="chat-room">
       <header class="chat-head">
-        <div class="avatar">${peer.avatarUrl ? `<img src="${peer.avatarUrl}" alt="" />` : peer.avatarSticker}</div>
+        <div class="avatar">${
+          type === "group"
+            ? escapeHtml(chat?.avatarSticker || "👥")
+            : peer?.avatarUrl
+              ? `<img src="${peer.avatarUrl}" alt="" />`
+              : escapeHtml(peer?.avatarSticker || "👤")
+        }</div>
         <div>
-          <strong>${escapeHtml(peer.nickname)}</strong>
-          <p>@${escapeHtml(peer.username)}</p>
+          <strong>${escapeHtml(type === "group" ? chat?.title || "Группа" : peer?.nickname || "Пользователь")}</strong>
+          <p>${
+            type === "group"
+              ? escapeHtml(`${chat?.participants?.length || 0} участников`)
+              : `@${escapeHtml(peer?.username || "")}`
+          }</p>
         </div>
         <button id="collapse-chat" class="ghost-btn small-btn" type="button">Свернуть</button>
       </header>
@@ -557,17 +874,29 @@ const openChat = async (chatId: string, peerId: string) => {
     content.textContent = "Пока что чатов нет";
   };
   const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "asc"));
-  onSnapshot(q, (snapshot) => {
+  onSnapshot(q, async (snapshot) => {
     if (chatId !== activeChatId) return;
-    messagesNode.innerHTML = snapshot.docs
-      .map((docItem) => {
-        const d = docItem.data() as MessageDoc;
-        const mine = d.senderId === auth.currentUser?.uid;
-        return renderMessage(d, mine, peerId);
+    const me = auth.currentUser;
+    const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as MessageDoc) })) as MessageDoc[];
+    const senderIds = [...new Set(docs.map((m) => m.senderId))];
+    await Promise.all(senderIds.map((id) => getProfile(id)));
+
+    messagesNode.innerHTML = docs
+      .map((m) => {
+        const mine = m.senderId === me?.uid;
+        const sender = profileCache.get(m.senderId) || null;
+        const canEdit = Boolean(me && mine);
+        return renderMessage({
+          message: m,
+          mine,
+          peerId,
+          sender,
+          showSenderLabel: true,
+          canEdit,
+        });
       })
       .join("");
     messagesNode.scrollTop = messagesNode.scrollHeight;
-    const me = auth.currentUser;
     if (me) {
       snapshot.docs.forEach((docItem) => {
         const d = docItem.data() as MessageDoc;
@@ -576,6 +905,21 @@ const openChat = async (chatId: string, peerId: string) => {
         }
       });
     }
+
+    messagesNode.querySelectorAll<HTMLButtonElement>(".msg-actions").forEach((btn) => {
+      btn.onclick = () => {
+        const row = btn.closest<HTMLElement>(".msg-row");
+        const mid = row?.dataset.mid || "";
+        const msg = docs.find((m) => m.id === mid);
+        if (!msg) return;
+        openMessageActionsModal({
+          chatId,
+          messageId: mid,
+          currentText: String(msg.text || ""),
+          deleted: Boolean(msg.deleted),
+        });
+      };
+    });
   });
 
   const form = document.getElementById("send-form") as HTMLFormElement;
