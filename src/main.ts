@@ -70,6 +70,7 @@ type MessageDoc = {
   deletedAt?: unknown;
   deletedBy?: string;
   deletedText?: string;
+  reactions?: Record<string, string[]>;
 };
 
 type Profile = {
@@ -979,6 +980,39 @@ const sanitizeChatParticipants = async (chatId: string, data: ChatDoc | null | u
   }
 };
 
+const REACTION_SET = ["👍", "❤️", "😂", "🔥", "😮", "😢", "👏", "🤡", "🤯", "👀", "🙏", "💯"];
+const toggleReaction = async (chatId: string, messageId: string, emoji: string) => {
+  const me = auth.currentUser;
+  if (!me) return;
+  const msgRef = doc(db, "chats", chatId, "messages", messageId);
+  const field = `reactions.${emoji}`;
+  const snap = await getDoc(msgRef);
+  if (!snap.exists()) return;
+  const data = snap.data() as MessageDoc;
+  const current = (data.reactions?.[emoji] || []) as string[];
+  const has = current.includes(me.uid);
+  await updateDoc(msgRef, { [field]: has ? arrayRemove(me.uid) : arrayUnion(me.uid) } as Record<string, unknown>);
+};
+
+const openReactionsMenu = (opts: { chatId: string; messageId: string }) => {
+  openModal(
+    `
+    <div class="react-menu">
+      ${REACTION_SET.map((e) => `<button type="button" class="react-btn" data-e="${escapeHtml(e)}">${escapeHtml(e)}</button>`).join("")}
+    </div>
+  `,
+    { closeOnOverlay: true }
+  );
+  document.querySelectorAll<HTMLButtonElement>(".react-btn").forEach((b) => {
+    b.onclick = async () => {
+      const e = b.dataset.e || "";
+      if (!e) return;
+      await toggleReaction(opts.chatId, opts.messageId, e);
+      closeModal();
+    };
+  });
+};
+
 const openMessageActionsModal = (opts: {
   chatId: string;
   messageId: string;
@@ -1213,10 +1247,22 @@ const renderMessage = (params: {
     ? `<img src="${sender.avatarUrl}" alt="" />`
     : escapeHtml(sender?.avatarSticker || "👤");
   const username = sender ? `@${sender.username}` : "@unknown";
+  const reactions = message.reactions || {};
+  const myUid = auth.currentUser?.uid || "";
+  const reactionChips = Object.entries(reactions)
+    .filter(([emoji, arr]) => emoji && Array.isArray(arr) && arr.length > 0)
+    .map(([emoji, arr]) => {
+      const active = myUid && (arr as string[]).includes(myUid);
+      return `<button type="button" class="react-chip ${active ? "active" : ""}" data-e="${escapeHtml(emoji)}">
+        <span class="re">${escapeHtml(emoji)}</span><span class="rc">${(arr as string[]).length}</span>
+      </button>`;
+    })
+    .join("");
   return `
     <div class="msg-row ${mine ? "mine" : ""} ${isSystem ? "system" : ""}" data-mid="${escapeHtml(message.id || "")}">
       <div class="msg">
         <p class="${message.deleted ? "muted" : ""}">${escapeHtml(body)}</p>
+        ${reactionChips ? `<div class="reactions">${reactionChips}</div>` : ""}
         <div class="msg-bottom">
           ${
             isSystem
@@ -1380,6 +1426,40 @@ const openChat = async (chatId: string, peerId: string) => {
           currentText: String(msg.text || msg.deletedText || ""),
           deleted: Boolean(msg.deleted),
         });
+      };
+    });
+
+    const attachHold = (row: HTMLElement) => {
+      const mid = row.dataset.mid || "";
+      if (!mid) return;
+      // right click (desktop)
+      row.oncontextmenu = (e) => {
+        e.preventDefault();
+        openReactionsMenu({ chatId, messageId: mid });
+      };
+      // long press (mobile)
+      let t: number | undefined;
+      const start = () => {
+        t = window.setTimeout(() => openReactionsMenu({ chatId, messageId: mid }), 420);
+      };
+      const cancel = () => {
+        if (t) window.clearTimeout(t);
+        t = undefined;
+      };
+      row.ontouchstart = () => start();
+      row.ontouchend = () => cancel();
+      row.ontouchcancel = () => cancel();
+      row.ontouchmove = () => cancel();
+    };
+    messagesNode.querySelectorAll<HTMLElement>(".msg-row").forEach((row) => attachHold(row));
+
+    messagesNode.querySelectorAll<HTMLButtonElement>(".react-chip").forEach((chip) => {
+      chip.onclick = () => {
+        const row = chip.closest<HTMLElement>(".msg-row");
+        const mid = row?.dataset.mid || "";
+        const e = chip.dataset.e || "";
+        if (!mid || !e) return;
+        void toggleReaction(chatId, mid, e);
       };
     });
 
